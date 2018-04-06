@@ -12,6 +12,7 @@ var Fabric_Client = require('fabric-client');
 var path = require('path');
 var util = require('util');
 var os = require('os');
+var rp = require('request-promise');
 
 //
 var fabric_client = new Fabric_Client();
@@ -28,6 +29,9 @@ var member_user = null;
 var store_path = path.join(__dirname, 'hfc-key-store');
 console.log('Store path:'+store_path);
 var tx_id = null;
+
+var carCounter = 1;
+var partCounter = 1;
 
 // create the key value store as defined in the fabric-client/config/default.json 'key-value-store' setting
 Fabric_Client.newDefaultKeyValueStore({ path: store_path
@@ -56,13 +60,15 @@ Fabric_Client.newDefaultKeyValueStore({ path: store_path
 	console.log("Assigning transaction_id: ", tx_id._transaction_id);
 
 	// createCar chaincode function - requires 5 args, ex: args: ['CAR12', 'Honda', 'Accord', 'Black', 'Tom'],
-	// changeCarOwner chaincode function - requires 2 args , ex: args: ['CAR10', 'Dave'],
+	// changeCarOwner chaincode function - requires 2 args , ex: args: ['CAR10', 'Barry'],
 	// must send the proposal to endorsing peers
+	carCounter++;
+
 	var request = {
 		//targets: let default to the peer assigned to the client
 		chaincodeId: 'fabcar',
-		fcn: '',
-		args: [''],
+		fcn: 'createCar',
+		args: ['Ford', 'F' + carCounter, 'Blue', 'Hilda', '210'],
 		chainId: 'mychannel',
 		txId: tx_id
 	};
@@ -153,9 +159,98 @@ Fabric_Client.newDefaultKeyValueStore({ path: store_path
 
 	if(results && results[1] && results[1].event_status === 'VALID') {
 		console.log('Successfully committed the change to the ledger by the peer');
+		
+		// get the transaction by Id and check it's results
+		let txnID = results[1].tx_id
+
+		channel.queryTransaction(txnID).then((result) => {
+			// POST succeeded...
+			console.log('Call to Query transaction by ID succeeded ::' + result.validationCode);		
+
+			let respActions = result.transactionEnvelope.payload.data.actions;
+			let resp = respActions[0].payload.action.proposal_response_payload.extension.response;
+
+			console.log('PAYLOAD :: ' + JSON.stringify(resp));			
+			let car = JSON.parse(resp.payload);
+			
+			// now call the parts service to fulfill order
+			sendAddParts(car.id);
+		})
+		.catch(function (err) {
+			// POST failed...
+			console.log('Call to Query Transaction by Id failed due to ::' + err);		
+		});			
+
 	} else {
 		console.log('Transaction failed to be committed to the ledger due to ::'+results[1].event_status);
 	}
 }).catch((err) => {
 	console.error('Failed to invoke successfully :: ' + err);
 });
+
+
+// sends an add parts REST message to external third party fulfillment partner webapp so it can take action.
+let sendAddParts = (carID) => {
+	getPartsServiceAuthToken(carID, addParts);
+}
+
+let getPartsServiceAuthToken = (carID, successHandler) => {
+	var options = {
+		method: 'POST',
+		uri: 'http://localhost:1337/api/oauth/token',
+		body: {
+			grant_type: 'password',
+			client_id: 'android',
+			client_secret: 'SomeRandomCharsAndNumbers',
+			username: 'myapi',
+			password: 'abc1234'
+		},
+		json: true // Automatically stringifies the body to JSON
+	};
+	
+	rp(options)
+		.then(function (parsedBody) {
+			// POST succeeded...
+			console.log('Call to OAuth service succeeded ::');		
+			console.log(JSON.stringify(parsedBody));
+
+			let token = parsedBody.access_token;
+			
+			// now call the parts service
+			successHandler(token, carID);
+		})
+		.catch(function (err) {
+			// POST failed...
+			console.log('Call to OAuth service failed due to ::' + err);		
+		});	
+}
+
+let addParts = (token, carID) => {
+	partCounter++;
+
+	console.log("Add PARTS METHOD - Part " + partCounter + " - token = " + token + " - Car ID = " + carID);
+
+	var options = {
+		method: 'POST',
+		uri: 'http://localhost:1337/api/parts',
+		headers: {
+			'Authorization': 'Bearer ' + token
+		},
+		body: {
+			carId: carID,
+			model: 'model-' + partCounter
+		},
+		json: true // Automatically stringifies the body to JSON
+	};
+	
+	rp(options)
+		.then(function (parsedBody) {
+			// POST succeeded...
+			console.log('Call to Create Part succeeded ::');		
+			console.log(JSON.stringify(parsedBody));
+		})
+		.catch(function (err) {
+			// POST failed...
+			console.log('Call to Part service to Create Car Part failed due to ::' + err);		
+		});
+}

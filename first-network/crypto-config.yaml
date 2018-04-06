@@ -26,8 +26,12 @@ PeerOrgs:
   # ---------------------------------------------------------------------------
   - Name: Org1
     Domain: org1.example.com
-    EnableNodeOUs: true
-    # ---------------------------------------------------------------------------
+    CA:
+      Country: US
+      Province: California
+      Locality: San Francisco
+
+   # ---------------------------------------------------------------------------
     # "Specs"
     # ---------------------------------------------------------------------------
     # Uncomment this section to enable the explicit definition of hosts in your
@@ -76,7 +80,6 @@ PeerOrgs:
   # ---------------------------------------------------------------------------
   - Name: Org2
     Domain: org2.example.com
-    EnableNodeOUs: true
     Template:
       Count: 2
     Users:
